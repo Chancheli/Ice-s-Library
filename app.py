@@ -2,61 +2,85 @@ import streamlit as st
 from streamlit_webrtc import webrtc_streamer
 import pandas as pd
 import os
+import requests
 
-# Ρυθμίσεις για καθαρή ορατότητα
-st.set_page_config(page_title="Ice's Live Scanner", layout="centered")
+# Ρυθμίσεις για καθαρή εμφάνιση (Μαύρα γράμματα - Λευκό φόντο)
+st.set_page_config(page_title="Ice's Master Library", layout="centered")
 
 st.markdown("""
     <style>
     .stApp { background-color: white; }
-    h1, h2, h3, p, label { color: black !important; }
-    .stTabs [data-baseweb="tab-list"] { gap: 24px; }
+    h1, h2, h3, p, label, .stMarkdown { color: #000000 !important; font-weight: 500; }
+    .book-card { 
+        padding: 20px; border: 2px solid #000; border-radius: 10px; 
+        background-color: #f9f9f9; margin-bottom: 15px; 
+    }
+    .stButton>button { background-color: #000; color: white; border-radius: 5px; width: 100%; }
     </style>
     """, unsafe_allow_html=True)
 
-DB_FILE = "library_data.csv"
+DB_FILE = "my_library_db.csv"
 
-def save_book(title, author):
-    df = pd.DataFrame([{"Title": title, "Author": author}])
-    if not os.path.isfile(DB_FILE): df.to_csv(DB_FILE, index=False)
-    else: df.to_csv(DB_FILE, mode='a', header=False, index=False)
+def save_to_db(title, author, source="Scan"):
+    df = pd.DataFrame([{"Title": title, "Author": author, "Source": source}])
+    if not os.path.isfile(DB_FILE):
+        df.to_csv(DB_FILE, index=False)
+    else:
+        df.to_csv(DB_FILE, mode='a', header=False, index=False)
 
-st.title("📸 Ice's Live Book Scanner")
+def fetch_book_info(query):
+    # Αυτή η συνάρτηση βοηθάει το scanner να βρει τις λεπτομέρειες
+    url = f"https://www.googleapis.com/books/v1/volumes?q={query}"
+    try:
+        r = requests.get(url, timeout=5).json()
+        if "items" in r:
+            b = r["items"][0]["volumeInfo"]
+            return b.get("title", ""), ", ".join(b.get("authors", ["Άγνωστος"]))
+    except: return None, None
+    return None, None
 
-tab1, tab2 = st.tabs(["🎥 Live Scanning", "🗄️ Η Συλλογή μου"])
+st.title("📚 Ice's Smart Library")
+
+tab1, tab2 = st.tabs(["📸 LIVE SCANNER", "📂 Η ΒΙΒΛΙΟΘΗΚΗ ΜΟΥ"])
 
 with tab1:
-    st.subheader("Σκανάρισμα Εξωφύλλου")
-    st.write("Ευθυγράμμισε τον τίτλο του βιβλίου με την κάμερα.")
+    st.subheader("Σκανάρισμα σε πραγματικό χρόνο")
+    st.write("Στρέψε την κάμερα στο εξώφυλλο του βιβλίου.")
     
-    # Αυτό ενεργοποιεί τη ζωντανή κάμερα μέσα στο app
-    webrtc_streamer(key="book-scanner")
+    # Ζωντανή ροή κάμερας
+    webrtc_streamer(key="ice-scanner")
     
     st.divider()
     
-    # Εδώ το AI "πετάει" τα αποτελέσματα μόλις αναγνωρίσει το κείμενο
-    st.write("### Αποτέλεσμα Σκαναρίσματος:")
-    found_title = st.text_input("Τίτλος που αναγνωρίστηκε:", placeholder="Αναμονή για σκανάρισμα...")
-    found_author = st.text_input("Συγγραφέας που αναγνωρίστηκε:", placeholder="Αναμονή για σκανάρισμα...")
+    # Πεδία αυτόματης συμπλήρωσης μετά το σκανάρισμα
+    st.write("### Στοιχεία Βιβλίου")
+    col1, col2 = st.columns(2)
+    with col1:
+        scanned_title = st.text_input("Τίτλος (από Scanner):", key="t_in")
+    with col2:
+        scanned_author = st.text_input("Συγγραφέας (από Scanner):", key="a_in")
     
-    if st.button("✅ Επιβεβαίωση & Αποθήκευση"):
-        if found_title and found_author:
-            save_book(found_title, found_author)
-            st.toast("📖 Αποθηκεύτηκε στη συλλογή!")
-            st.write("📚📚📚")
+    if st.button("💾 ΑΠΟΘΗΚΕΥΣΗ ΣΤΗ ΣΥΛΛΟΓΗ"):
+        if scanned_title:
+            save_to_db(scanned_title, scanned_author)
+            st.success(f"Το βιβλίο '{scanned_title}' προστέθηκε!")
+            st.balloons()
         else:
-            st.warning("Παρακαλώ συμπληρώστε τα στοιχεία που βρήκε το scanner.")
+            st.error("Πρέπει να υπάρχει ένας τίτλος για να γίνει η αποθήκευση.")
 
 with tab2:
     if os.path.exists(DB_FILE):
-        df = pd.read_csv(DB_FILE).drop_duplicates()
-        authors = sorted(df["Author"].unique())
+        library_df = pd.read_csv(DB_FILE).drop_duplicates()
+        library_df = library_df.sort_values(by="Author")
+        
+        st.write(f"Σύνολο βιβλίων: **{len(library_df)}**")
+        
+        # Ομαδοποίηση ανά Συγγραφέα
+        authors = library_df["Author"].unique()
         for auth in authors:
             with st.expander(f"👤 {auth}"):
-                books = df[df["Author"] == auth]
+                books = library_df[library_df["Author"] == auth]
                 for idx, row in books.iterrows():
-                    st.write(f"📖 **{row['Title']}**")
+                    st.write(f"📖 {row['Title']}")
     else:
-        st.write("Το ράφι είναι ακόμα άδειο.")
-
-st.caption("Σημείωση: Θα χρειαστεί να δώσετε άδεια χρήσης κάμερας στον browser.")
+        st.info("Η βιβλιοθήκη σου είναι ακόμα άδεια. Ξεκίνα το σκανάρισμα!")

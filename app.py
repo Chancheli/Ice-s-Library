@@ -1,69 +1,103 @@
 import streamlit as st
 import requests
+import time
 
-st.set_page_config(page_title="Ice's Library", page_icon="📚")
+# Ρυθμίσεις Σελίδας
+st.set_page_config(page_title="Ice's Library Expert", page_icon="📚", layout="centered")
+
+# Custom CSS για πιο "βιβλιοφιλική" εμφάνιση
+st.markdown("""
+    <style>
+    .stApp {
+        background-color: #fcfaf5;
+    }
+    .book-card {
+        padding: 20px;
+        border-radius: 10px;
+        border-left: 5px solid #5d4037;
+        background-color: white;
+        box-shadow: 2px 2px 10px rgba(0,0,0,0.05);
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
 st.title("📚 Ice's Multilingual Library")
-st.markdown("Σάρωση βιβλίων σε Ελληνικά, Αγγλικά, Ισπανικά & Γαλλικά")
+st.subheader("Εξειδικευμένη Οργάνωση: Ελληνικά, Αγγλικά, Ισπανικά")
 
 def get_book_info(isbn):
-    # Πηγή 1: Google Books (Πολύ καλό για ελληνικά & αγγλικά)
+    # Καθαρισμός ISBN
+    isbn = isbn.replace("-", "").replace(" ", "")
+    
+    # Πηγή 1: Google Books
     google_url = f"https://www.googleapis.com/books/v1/volumes?q=isbn:{isbn}"
     
-    # Πηγή 2: Open Library (Καλό για ευρωπαϊκές εκδόσεις & παλαιότερα βιβλία)
-    openlib_url = f"https://openlibrary.org/api/books?bibkeys=ISBN:{isbn}&format=json&jscmd=data"
-    
-    res = {"title": None, "authors": None, "lang": None, "cover": None, "source": ""}
-
-    # Δοκιμή Google
     try:
-        g_resp = requests.get(google_url).json()
-        if "items" in g_resp:
-            b = g_resp["items"][0]["volumeInfo"]
-            res["title"] = b.get("title")
-            res["authors"] = ", ".join(b.get("authors", []))
-            res["lang"] = b.get("language", "").upper()
-            res["cover"] = b.get("imageLinks", {}).get("thumbnail")
-            res["source"] = "Google Books"
-            return res
-    except: pass
-
-    # Δοκιμή Open Library (αν αποτύχει η Google)
-    try:
-        o_resp = requests.get(openlib_url).json()
-        key = f"ISBN:{isbn}"
-        if key in o_resp:
-            b = o_resp[key]
-            res["title"] = b.get("title")
-            res["authors"] = ", ".join([a['name'] for a in b.get("authors", [])])
-            res["cover"] = b.get("cover", {}).get("large")
-            res["source"] = "Open Library"
-            return res
-    except: pass
-    
+        response = requests.get(google_url, timeout=5)
+        data = response.json()
+        
+        if "items" in data:
+            b = data["items"][0]["volumeInfo"]
+            return {
+                "title": b.get("title", "Άγνωστος Τίτλος"),
+                "authors": ", ".join(b.get("authors", ["Άγνωστος Συγγραφέας"])),
+                "lang": b.get("language", "??").upper(),
+                "cover": b.get("imageLinks", {}).get("thumbnail", None),
+                "description": b.get("description", "Δεν υπάρχει περιγραφή."),
+                "found": True
+            }
+    except:
+        pass
     return None
 
-isbn_input = st.text_input("Σκανάρτε ή πληκτρολογήστε το ISBN:")
+# Interface
+isbn_input = st.text_input("Εισάγετε το ISBN του βιβλίου σας:", placeholder="π.χ. 9786180107562")
 
 if isbn_input:
-    isbn_clean = isbn_input.replace("-", "").replace(" ", "")
-    data = get_book_info(isbn_clean)
+    with st.spinner('Αναζήτηση στις διεθνείς βάσεις...'):
+        book = get_book_info(isbn_input)
     
-    if data:
+    if book:
+        st.markdown(f'<div class="book-card">', unsafe_allow_html=True)
         col1, col2 = st.columns([1, 2])
-        with col1:
-            if data["cover"]: st.image(data["cover"])
-        with col2:
-            st.header(data["title"])
-            st.subheader(data["authors"])
-            st.write(f"🌐 Γλώσσα: {data.get('lang', 'N/A')}")
-            st.caption(f"Πηγή δεδομένων: {data['source']}")
         
-        if st.button("✅ Προσθήκη στη Συλλογή"):
-            st.balloons()
-            st.success("Αποθηκεύτηκε!")
+        with col1:
+            if book["cover"]:
+                st.image(book["cover"], use_container_width=True)
+            else:
+                st.info("📷 Χωρίς Εξώφυλλο")
+        
+        with col2:
+            st.header(book["title"])
+            st.write(f"**Συγγραφέας:** {book['authors']}")
+            st.write(f"**Γλώσσα:** {book['lang']}")
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Το "Αγκάθι": Έλεγχος ορθότητας
+        st.write("---")
+        correct = st.radio("Είναι τα στοιχεία σωστά;", ("Ναι, είναι σωστά", "Όχι, είναι λάθος (Ελληνικό ISBN)"))
+        
+        if correct == "Όχι, είναι λάθος (Ελληνικό ISBN)":
+            st.warning("⚠️ Οι διεθνείς βάσεις συχνά μπερδεύουν τα ελληνικά βιβλία.")
+            new_title = st.text_input("Γράψτε τον σωστό Τίτλο & Συγγραφέα (π.χ. Murakami - Ο Άχρωμος Τσουκούρου):")
+            if st.button("Αποθήκευση με Διόρθωση"):
+                # Εφέ με βιβλιαράκια αντί για μπαλόνια
+                st.toast("📖 Προστέθηκε στη συλλογή!")
+                time.sleep(0.5)
+                st.write("✨ Αποθηκεύτηκε: " + new_title + " 📚📚📚")
+        else:
+            if st.button("✅ Προσθήκη στη Συλλογή"):
+                st.toast("📖 Το βιβλίο μπήκε στο ράφι!")
+                st.write("📘📕📗📙") # Τα χαριτωμένα βιβλιαράκια σου
+                
     else:
-        st.error("Δεν βρέθηκε! Δοκιμάστε να γράψετε τον τίτλο.")
-        manual_t = st.text_input("Τίτλος (χειροκίνητα)")
-        if st.button("Αποθήκευση"):
-            st.write("Οκ, το κράτησα!")
+        st.error("Το ISBN δεν βρέθηκε αυτόματα.")
+        with st.expander("Χειροκίνητη Προσθήκη"):
+            manual_title = st.text_input("Τίτλος & Συγγραφέας")
+            if st.button("Αποθήκευση Χειροκίνητα"):
+                st.toast("📖 Αποθηκεύτηκε!")
+                st.write("📚")
+
+# Footer
+st.markdown("---")
+st.caption("Ice's Library Project 2026 - Powered by AI")

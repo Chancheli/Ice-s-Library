@@ -1,103 +1,85 @@
 import streamlit as st
 import requests
-import time
+import pandas as pd
+import os
 
-# Ρυθμίσεις Σελίδας
-st.set_page_config(page_title="Ice's Library Expert", page_icon="📚", layout="centered")
+# Ρυθμίσεις για απόλυτη ορατότητα
+st.set_page_config(page_title="Ice's Library v3", layout="centered")
 
-# Custom CSS για πιο "βιβλιοφιλική" εμφάνιση
 st.markdown("""
     <style>
-    .stApp {
-        background-color: #fcfaf5;
-    }
-    .book-card {
-        padding: 20px;
-        border-radius: 10px;
-        border-left: 5px solid #5d4037;
-        background-color: white;
-        box-shadow: 2px 2px 10px rgba(0,0,0,0.05);
+    .stApp { background-color: white; }
+    h1, h2, h3, p, label, .stMarkdown { color: #000000 !important; }
+    .book-box { 
+        padding: 20px; 
+        border: 2px solid #000000; 
+        border-radius: 5px; 
+        background-color: #f9f9f9; 
+        margin-bottom: 15px; 
     }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("📚 Ice's Multilingual Library")
-st.subheader("Εξειδικευμένη Οργάνωση: Ελληνικά, Αγγλικά, Ισπανικά")
+DB_FILE = "library_data.csv"
 
-def get_book_info(isbn):
-    # Καθαρισμός ISBN
-    isbn = isbn.replace("-", "").replace(" ", "")
-    
-    # Πηγή 1: Google Books
-    google_url = f"https://www.googleapis.com/books/v1/volumes?q=isbn:{isbn}"
-    
+def save_book(data):
+    df = pd.DataFrame([data])
+    if not os.path.isfile(DB_FILE):
+        df.to_csv(DB_FILE, index=False)
+    else:
+        df.to_csv(DB_FILE, mode='a', header=False, index=False)
+
+def fetch_from_open_library(isbn):
+    url = f"https://openlibrary.org/api/books?bibkeys=ISBN:{isbn}&format=json&jscmd=data"
     try:
-        response = requests.get(google_url, timeout=5)
-        data = response.json()
-        
-        if "items" in data:
-            b = data["items"][0]["volumeInfo"]
+        r = requests.get(url, timeout=10).json()
+        key = f"ISBN:{isbn}"
+        if key in r:
+            b = r[key]
             return {
-                "title": b.get("title", "Άγνωστος Τίτλος"),
-                "authors": ", ".join(b.get("authors", ["Άγνωστος Συγγραφέας"])),
-                "lang": b.get("language", "??").upper(),
-                "cover": b.get("imageLinks", {}).get("thumbnail", None),
-                "description": b.get("description", "Δεν υπάρχει περιγραφή."),
-                "found": True
+                "Title": b.get("title", "Unknown"),
+                "Author": ", ".join([a['name'] for a in b.get("authors", [])]),
+                "Cover": b.get("cover", {}).get("large", ""),
+                "Source": "Open Library"
             }
-    except:
-        pass
+    except: return None
     return None
 
-# Interface
-isbn_input = st.text_input("Εισάγετε το ISBN του βιβλίου σας:", placeholder="π.χ. 9786180107562")
+st.title("📚 Ice's Private Collection")
 
-if isbn_input:
-    with st.spinner('Αναζήτηση στις διεθνείς βάσεις...'):
-        book = get_book_info(isbn_input)
-    
-    if book:
-        st.markdown(f'<div class="book-card">', unsafe_allow_html=True)
-        col1, col2 = st.columns([1, 2])
+tab1, tab2 = st.tabs(["➕ Προσθήκη", "🗄️ Αρχείο ανά Συγγραφέα"])
+
+with tab1:
+    isbn_in = st.text_input("Δώστε ISBN (π.χ. 9780552146159):")
+    if isbn_in:
+        isbn_clean = isbn_in.replace("-", "").strip()
+        with st.spinner("Αναζήτηση..."):
+            res = fetch_from_open_library(isbn_clean)
         
-        with col1:
-            if book["cover"]:
-                st.image(book["cover"], use_container_width=True)
-            else:
-                st.info("📷 Χωρίς Εξώφυλλο")
-        
-        with col2:
-            st.header(book["title"])
-            st.write(f"**Συγγραφέας:** {book['authors']}")
-            st.write(f"**Γλώσσα:** {book['lang']}")
-        
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        # Το "Αγκάθι": Έλεγχος ορθότητας
-        st.write("---")
-        correct = st.radio("Είναι τα στοιχεία σωστά;", ("Ναι, είναι σωστά", "Όχι, είναι λάθος (Ελληνικό ISBN)"))
-        
-        if correct == "Όχι, είναι λάθος (Ελληνικό ISBN)":
-            st.warning("⚠️ Οι διεθνείς βάσεις συχνά μπερδεύουν τα ελληνικά βιβλία.")
-            new_title = st.text_input("Γράψτε τον σωστό Τίτλο & Συγγραφέα (π.χ. Murakami - Ο Άχρωμος Τσουκούρου):")
-            if st.button("Αποθήκευση με Διόρθωση"):
-                # Εφέ με βιβλιαράκια αντί για μπαλόνια
-                st.toast("📖 Προστέθηκε στη συλλογή!")
-                time.sleep(0.5)
-                st.write("✨ Αποθηκεύτηκε: " + new_title + " 📚📚📚")
+        if res:
+            st.markdown('<div class="book-box">', unsafe_allow_html=True)
+            c1, c2 = st.columns([1, 2])
+            with c1:
+                if res["Cover"]: st.image(res["Cover"])
+            with c2:
+                st.subheader(res["Title"])
+                st.write(f"**Συγγραφέας:** {res['Author']}")
+                if st.button("💾 Οριστική Αποθήκευση"):
+                    save_book(res)
+                    st.success(f"Το βιβλίο '{res['Title']}' μπήκε στο αρχείο!")
+            st.markdown('</div>', unsafe_allow_html=True)
         else:
-            if st.button("✅ Προσθήκη στη Συλλογή"):
-                st.toast("📖 Το βιβλίο μπήκε στο ράφι!")
-                st.write("📘📕📗📙") # Τα χαριτωμένα βιβλιαράκια σου
-                
-    else:
-        st.error("Το ISBN δεν βρέθηκε αυτόματα.")
-        with st.expander("Χειροκίνητη Προσθήκη"):
-            manual_title = st.text_input("Τίτλος & Συγγραφέας")
-            if st.button("Αποθήκευση Χειροκίνητα"):
-                st.toast("📖 Αποθηκεύτηκε!")
-                st.write("📚")
+            st.error("Δεν βρέθηκε. Δοκιμάστε να γράψετε τον τίτλο χειροκίνητα στο Tab 'Αρχείο'.")
 
-# Footer
-st.markdown("---")
-st.caption("Ice's Library Project 2026 - Powered by AI")
+with tab2:
+    if os.path.exists(DB_FILE):
+        df = pd.read_csv(DB_FILE).drop_duplicates()
+        df = df.sort_values("Author")
+        authors = df["Author"].unique()
+        for auth in authors:
+            with st.expander(f"👤 {auth}"):
+                books = df[df["Author"] == auth]
+                for i, row in books.iterrows():
+                    st.write(f"📖 {row['Title']}")
+    else:
+        st.write("Το αρχείο είναι κενό.")

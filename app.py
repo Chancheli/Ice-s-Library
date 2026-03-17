@@ -1,6 +1,6 @@
 import streamlit as st
 import requests
-import pd
+import pandas as pd  
 import os
 import time
 

@@ -1,6 +1,8 @@
 streamlit
-streamlit-webrtc
-opencv-python-headless
-easyocr
 pandas
+easyocr
+opencv-python-headless
 numpy
+
+
+

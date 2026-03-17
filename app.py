@@ -1,105 +1,87 @@
-import streamlit as st
-from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
+ import streamlit as st
 import pandas as pd
 import os
-import cv2
-import numpy as np
 import easyocr
+import numpy as np
+import cv2
+from PIL import Image
 
-# Ρυθμίσεις για καθαρή εμφάνιση (Μαύρα γράμματα - Λευκό φόντο)
-st.set_page_config(page_title="Ice's Master Library", layout="centered")
+# Ρυθμίσεις για καθαρή εμφάνιση
+st.set_page_config(page_title="Ice's Greek Library", layout="centered")
 
 st.markdown("""
     <style>
     .stApp { background-color: white; }
-    h1, h2, h3, p, label, .stMarkdown { color: #000000 !important; font-weight: 500; }
-    .stButton>button { background-color: #000; color: white; border-radius: 5px; width: 100%; }
+    h1, h2, h3, p, label { color: black !important; font-weight: 500; }
+    .stButton>button { background-color: #000; color: white; width: 100%; border-radius: 8px; }
     </style>
     """, unsafe_allow_html=True)
 
 DB_FILE = "library_data.csv"
+
+# Φόρτωση του OCR με πρόβλεψη για σφάλματα
+@st.cache_resource
+def load_ocr():
+    try:
+        # Δοκιμάζουμε να φορτώσουμε Ελληνικά και Αγγλικά
+        return easyocr.Reader(['el', 'en'], gpu=False)
+    except:
+        # Αν αποτύχει το cloud, φορτώνει μόνο Αγγλικά για να μην κρασάρει το app
+        return easyocr.Reader(['en'], gpu=False)
+
+reader = load_ocr()
 
 def save_to_db(title, author):
     df = pd.DataFrame([{"Title": title, "Author": author}])
     if not os.path.isfile(DB_FILE): df.to_csv(DB_FILE, index=False)
     else: df.to_csv(DB_FILE, mode='a', header=False, index=False)
 
-# Αρχικοποίηση του EasyOCR (για Ελληνικά και Αγγλικά)
-# Σημείωση: Αυτό μπορεί να πάρει λίγο χρόνο την πρώτη φορά που θα τρέξει
-@st.cache_resource
-def load_reader():
-    return easyocr.Reader(['el', 'en'], gpu=False) # gpu=False γιατί το Streamlit Cloud συνήθως δεν έχει GPU
+st.title("📚 Ice's Greek Library Scanner")
 
-reader = load_reader()
-
-# Ο "εγκέφαλος" που επεξεργάζεται το βίντεο live
-class BookTitleReader(VideoTransformerBase):
-    def transform(self, frame):
-        img = frame.to_ndarray(format="bgr24")
-        
-        # Επεξεργασία εικόνας για καλύτερο OCR (προαιρετικά)
-        # gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        
-        # Προσπάθεια ανάγνωσης κειμένου
-        results = reader.readtext(img)
-        
-        # Σχεδίαση πλαισίων γύρω από το κείμενο που βρέθηκε
-        for (bbox, text, prob) in results:
-            if prob > 0.5: # Μόνο αν η βεβαιότητα είναι > 50%
-                (top_left, top_right, bottom_right, bottom_left) = bbox
-                top_left = (int(top_left[0]), int(top_left[1]))
-                bottom_right = (int(bottom_right[0]), int(bottom_right[1]))
-                cv2.rectangle(img, top_left, bottom_right, (0, 255, 0), 2)
-                cv2.putText(img, text, (top_left[0], top_left[1] - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-        
-        return img
-
-st.title("📸 Ice's Smart Library")
-
-tab1, tab2 = st.tabs(["🎥 LIVE SCANNER", "📂 Η Συλλογή μου"])
+tab1, tab2 = st.tabs(["📷 ΣΚΑΝΑΡΙΣΜΑ", "📂 Η ΣΥΛΛΟΓΗ ΜΟΥ"])
 
 with tab1:
-    st.subheader("Σκανάρισμα σε πραγματικό χρόνο")
-    st.write("Στρέψε την κάμερα στο εξώφυλλο του βιβλίου.")
-    st.write("⚠️ *Σημείωση: Το live σκανάρισμα σε browser είναι ακόμα πειραματικό και μπορεί να είναι αργό.*")
+    st.subheader("Σκανάρισμα Εξωφύλλου")
     
-    # Ζωντανή ροή κάμερας με τον "εγκέφαλο" (VideoTransformer)
-    webrtc_streamer(key="ice-smart-scanner", video_transformer_factory=BookTitleReader)
+    # Χρήση της κάμερας του κινητού/PC
+    img_file = st.camera_input("Βάλε το βιβλίο στο πλαίσιο")
     
-    st.divider()
-    
-    # Πεδία αυτόματης συμπλήρωσης μετά το σκανάρισμα
-    st.write("### Αποτέλεσμα Σκαναρίσματος")
-    st.write("⚠️ *Αυτή η έκδοση δεν 'τραβάει' αυτόματα το κείμενο στα πεδία ακόμα.*")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        found_title = st.text_input("Τίτλος που βρέθηκε:")
-    with col2:
-        found_author = st.text_input("Συγγραφέας που βρέθηκε:")
-    
-    if st.button("💾 ΑΠΟΘΗΚΕΥΣΗ ΣΤΗ ΣΥΛΛΟΓΗ"):
-        if found_title:
-            save_to_db(found_title, found_author)
-            st.toast("📖 Το βιβλίο αποθηκεύτηκε!")
-            st.balloons()
-        else:
-            st.error("Πρέπει να υπάρχει ένας τίτλος για να γίνει η αποθήκευση.")
+    if img_file:
+        # Μετατροπή εικόνας για το AI
+        file_bytes = np.asarray(bytearray(img_file.read()), dtype=np.uint8)
+        opencv_image = cv2.imdecode(file_bytes, 1)
+        
+        with st.spinner("Το AI διαβάζει τα Ελληνικά..."):
+            result = reader.readtext(opencv_image)
+            # Ενώνουμε όλα τα κείμενα που βρήκε σε μια λίστα
+            detected_text = [res[1] for res in result if res[2] > 0.2]
+            full_text = " ".join(detected_text)
+        
+        st.success("Ανάγνωση ολοκληρώθηκε!")
+        
+        # Πεδία για επιβεβαίωση
+        st.write("### Επιβεβαίωση Στοιχείων")
+        final_title = st.text_input("Τίτλος:", value=full_text)
+        final_author = st.text_input("Συγγραφέας:", placeholder="Γράψε τον συγγραφέα αν δεν βρέθηκε")
+        
+        if st.button("💾 ΑΠΟΘΗΚΕΥΣΗ ΣΤΗ ΣΥΛΛΟΓΗ"):
+            if final_title:
+                save_to_db(final_title, final_author)
+                st.toast("📘 Αποθηκεύτηκε!")
+                st.balloons()
 
 with tab2:
     if os.path.exists(DB_FILE):
-        library_df = pd.read_csv(DB_FILE).drop_duplicates()
-        library_df = library_df.sort_values(by="Author")
+        df = pd.read_csv(DB_FILE).drop_duplicates()
+        st.write(f"Έχεις **{len(df)}** βιβλία.")
         
-        st.write(f"Σύνολο βιβλίων: **{len(library_df)}**")
-        
-        # Ομαδοποίηση ανά Συγγραφέα
-        authors = library_df["Author"].unique()
-        for auth in authors:
-            with st.expander(f"👤 {auth}"):
-                books = library_df[library_df["Author"] == auth]
-                for idx, row in books.iterrows():
-                    st.write(f"📖 {row['Title']}")
+        # Ταξινόμηση και προβολή
+        for idx, row in df.iterrows():
+            with st.container():
+                st.markdown(f"**{row['Title']}**")
+                st.caption(f"Συγγραφέας: {row['Author']}")
+                st.divider()
     else:
-        st.info("Η βιβλιοθήκη σου είναι ακόμα άδεια. Ξεκίνα το σκανάρισμα!")
+        st.info("Το ράφι είναι άδειο.")
+
+
